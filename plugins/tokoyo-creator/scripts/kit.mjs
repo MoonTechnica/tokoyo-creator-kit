@@ -40024,6 +40024,7 @@ function parsePulled(text) {
     throw new PulledError('get_git_bundles: "author" is missing');
   if (!Array.isArray(raw.bundles))
     throw new PulledError('get_git_bundles: "bundles" is missing');
+  const reference = head(raw.reference);
   return {
     app_id: string4(raw, "app_id"),
     session_id: string4(raw, "session_id"),
@@ -40031,6 +40032,10 @@ function parsePulled(text) {
     author: { name: string4(author, "name"), email: string4(author, "email", /^[^\s<>]+@[^\s<>]+$/) },
     head: head(raw.head),
     main: head(raw.main),
+    reference: isObject3(raw.reference) && reference ? {
+      ...reference,
+      ref_name: string4(raw.reference, "ref_name", /^refs\/releases\/[0-9A-Za-z_-]+$/)
+    } : null,
     bundles: raw.bundles.map(bundle),
     lfs_url: url2(raw.lfs_url, "lfs_url")
   };

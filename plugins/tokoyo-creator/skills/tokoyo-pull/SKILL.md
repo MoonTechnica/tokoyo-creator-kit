@@ -17,6 +17,8 @@ description: Platform にある TOKOYO.games のゲームを手元に取り込�
    無ければ新しいディレクトリを作って移り、`node <kit>/scripts/kit.mjs clone --bundles '<同じ JSON>'`。
    `pull` は commit していない変更があると断るので、先に `git commit` する（`<kit>/profile/instructions.md` §8.3 / §8.4）。
 5. 結果の `status` が `conflict` なら、示されたファイルの衝突を解き `git add` → `git rebase --continue`（§8.4）。
-6. **最新mainを自分のfeatへ取り込む**: 同じ取得結果のmainは `refs/remotes/tokoyo/heads/main` にfetchされる。
+6. **参照を許可された最新mainだけを自分のfeatへ取り込む**: `main` が返る場合だけ行う。一般参加者には公開済みリリースのみが渡される。参照権限がある取得結果のmainは `refs/remotes/tokoyo/heads/main` にfetchされる。
    feat上で `git merge refs/remotes/tokoyo/heads/main`。競合を解決してcommitし、build・pushで再検証する。
    mainをfetchしても、featのhead・pushのbase・公開版は自動で置き換わらない。
+
+7. **公開版を参照する**: `main` が null で `reference` が返る場合、`reference.ref_name`（`refs/releases/<version_id>`）は安全な公開スナップショット。fetch済みの `refs/remotes/tokoyo/releases/<version_id>` は公開版の参照用で、自分のfeatを置き換えない。通常のpullは自分のfeatだけを同期する。公開スナップショットには未公開履歴を含めず、別の公開版との共通祖先を仮定しない。未公開 main の取得やプレビューは求めない。作者側の取り込みは、固定された公開スナップショットを共通の起点として最新mainへ行う。

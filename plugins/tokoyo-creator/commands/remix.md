@@ -1,5 +1,5 @@
 ---
-description: 他の人のゲームの最新mainからfeatを作り、手元で作業を始める
+description: 他の人のゲームの公開済みリリース（参照許可があれば最新main）からfeatを作り、手元で作業を始める
 argument-hint: "<ゲームのページの URL または app_id>"
 ---
 

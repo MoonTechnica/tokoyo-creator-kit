@@ -345,7 +345,7 @@ LFS の実体を上げ下ろしするので、最初に一度 `node <kit>/script
 2. `status` が `conflict` なら、示されたファイルの衝突を解き（`git diff` で両方の変更を見る。依頼の意図を残す）、`git add` → `git rebase --continue`。
 3. §8.3 の 2. から送り直す（`pack` の `base_commit_oid` は新しい head になっている）。
 
-**main の更新を確認する**ときは同じ `session_id` の `get_git_bundles` を取得して pull する。`refs/remotes/tokoyo/heads/main` が最新main、自分の `thread_ref` はfeat。必要ならmainを自分のfeatへgit mergeし、競合を解決して検証・pushする。pullだけでfeatをmainに置き換えない。
+**main の参照権限がある場合に更新を確認する**ときは同じ `session_id` の `get_git_bundles` を取得して pull する。返り値の `main` が存在する場合だけ `refs/remotes/tokoyo/heads/main` が最新main、自分の `thread_ref` はfeat。必要ならmainを自分のfeatへgit mergeし、競合を解決して検証・pushする。pullだけでfeatをmainに置き換えない。
 
 ### 8.5 ほかのエラー
 
@@ -368,7 +368,7 @@ LFS の実体を上げ下ろしするので、最初に一度 `node <kit>/script
 
 同じゲームのfeatからmainへ変更を提案する。別の所有ゲームを作らない。元作者・チームメンバーもfeatで編集し、mainの確定と公開は制作画面で利用者が操作する。
 
-1. `resolve_app({ reference })` で元ゲーム・作者・参加可否・自分の枝を確認する。自分・所属チームのゲームは `get_app` の通常編集へ進む。外部参加は `contribution.allowed` を確認し、既存の `my_branches` を再開するか `create_branch({ app_id, request_key })` で最新mainからfeatを作る。
+1. `resolve_app({ reference })` で元ゲーム・作者・参加可否・自分の枝を確認する。自分・所属チームのゲームは `get_app` の通常編集へ進む。外部参加は `contribution.allowed` を確認し、既存の `my_branches` を再開するか `create_branch({ app_id, request_key })` で公開済みリリース（main の明示的な参照許可があれば最新main）からfeatを作る。
 2. 元ゲームの `app_id` と自分の `session_id` で §8.3 の取得・変更・検証・pushを行う。素材ツールにも両IDを渡す。生成・検証成功はfeatだけ進め、main・公開版は変えない。
 3. 自分のfeatの検証済みheadを `open_proposal({ app_id, session_id, title, body })` で提出する。省略した版はそのfeatのheadに限る。続きのpushで提案を自動差し替えず、`update_proposal` で明示的に更新する。
 4. 編集者は `get_proposal_inputs({ proposal_id })` の結果を `kit.mjs fetch-review --inputs '<JSON>'` に渡し、`git diff <base> <theirs>` で提案の差分を読む。取得は提案時点のcommitとmainに限定され、手元のfeatやpushのbaseは変わらない。素材取得が必要なら結果の `lfs_url` をその取得だけに指定する。`merge_proposal` は合流候補を作って検証する操作。成功だけではmainへ反映されない。制作画面で候補を試遊し、利用者が「mainへ取り込む」を確定する。確認後にmain・提案が変われば候補を作り直す。
@@ -381,3 +381,5 @@ LFS の実体を上げ下ろしするので、最初に一度 `node <kit>/script
 | `INVALID_ACTION`（`proposal_already_open`） | 同じfeatから開いている提案がある。`update_proposal` で版を差し替える |
 | `QUOTA_EXCEEDED`（`insufficient_credits`） | マージの支払い元の残高が無い。利用者に伝える |
 | `RATE_LIMITED` | 提案は 1 日 20 件、コメントは 1 日 200 件まで。待つ |
+
+一般参加者には公開版とその作業に必要なコード・素材だけを取得する。未公開 main の共有は作者・チームまたは明示的に許可された招待者だけ。公開版からの提案も最新 main に取り込むが、合流候補のコード・競合解決・検証・プレビューは作者側で確認する。
