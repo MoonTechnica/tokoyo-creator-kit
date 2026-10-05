@@ -25283,6 +25283,8 @@ async function importArtifact(archive, ledger = []) {
       throw new ImportError("UNSUPPORTED_ENTRY", `the archive contains a non-file entry (typeflag ${entry.typeflag}): ${path}`);
     }
     assertSafePath(path);
+    if (path === ARTIFACT_INDEX_PATH)
+      continue;
     if (seen.has(path)) {
       throw new ImportError("DUPLICATE_ENTRY", `duplicate entry in the archive: ${path}`);
     }
