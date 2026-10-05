@@ -24362,6 +24362,57 @@ var spaceFinishedPayloadSchema = exports_external.strictObject({
   ranks: ranksSchema.optional(),
   reason: exports_external.enum(["timeout", "server_error"]).optional()
 });
+// frontend/packages/app-protocol/src/screenshot.ts
+var SCREENSHOT_MAX_EDGE = 1920;
+var SCREENSHOT_MAX_BYTES = 4 * 1024 * 1024;
+var screenshotRequestMessageSchema = exports_external.strictObject({
+  type: exports_external.literal("screenshot_request"),
+  requestId: exports_external.uuid()
+});
+var screenshotImageSchema = exports_external.strictObject({
+  mime: exports_external.literal("image/jpeg"),
+  bytes: exports_external.custom((value) => Object.prototype.toString.call(value) === "[object ArrayBuffer]" && value.byteLength > 0 && value.byteLength <= SCREENSHOT_MAX_BYTES),
+  width: exports_external.int().min(1).max(SCREENSHOT_MAX_EDGE),
+  height: exports_external.int().min(1).max(SCREENSHOT_MAX_EDGE)
+});
+var RECORDING_MAX_BYTES = 100 * 1024 * 1024;
+var RECORDING_MAX_SECONDS = 180;
+var recordingRequestMessageSchema = exports_external.strictObject({
+  type: exports_external.literal("recording_request"),
+  requestId: exports_external.uuid(),
+  action: exports_external.enum(["start", "stop", "cancel"])
+});
+var gameRecordingSchema = exports_external.strictObject({
+  mime: exports_external.enum(["video/webm", "video/mp4"]),
+  bytes: exports_external.custom((value) => Object.prototype.toString.call(value) === "[object ArrayBuffer]" && value.byteLength > 0 && value.byteLength <= RECORDING_MAX_BYTES),
+  duration: exports_external.number().positive().max(RECORDING_MAX_SECONDS)
+});
+var recordingResultMessageSchema = exports_external.discriminatedUnion("ok", [
+  gameRecordingSchema.extend({
+    type: exports_external.literal("recording_result"),
+    requestId: exports_external.uuid(),
+    ok: exports_external.literal(true)
+  }),
+  exports_external.strictObject({
+    type: exports_external.literal("recording_result"),
+    requestId: exports_external.uuid(),
+    ok: exports_external.literal(false),
+    reason: exports_external.enum(["unavailable", "failed", "cancelled"])
+  })
+]);
+var screenshotResultMessageSchema = exports_external.discriminatedUnion("ok", [
+  screenshotImageSchema.extend({
+    type: exports_external.literal("screenshot_result"),
+    requestId: exports_external.uuid(),
+    ok: exports_external.literal(true)
+  }),
+  exports_external.strictObject({
+    type: exports_external.literal("screenshot_result"),
+    requestId: exports_external.uuid(),
+    ok: exports_external.literal(false),
+    reason: exports_external.enum(["unavailable", "failed"])
+  })
+]);
 // frontend/packages/app-validator/src/version.ts
 var VALIDATOR_VERSION = "1.1.0";
 
