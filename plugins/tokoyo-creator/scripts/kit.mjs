@@ -40024,17 +40024,22 @@ function parsePulled(text) {
     throw new PulledError('get_git_bundles: "author" is missing');
   if (!Array.isArray(raw.bundles))
     throw new PulledError('get_git_bundles: "bundles" is missing');
+  const main = head(raw.main);
   const reference = head(raw.reference);
+  const referenceName = isObject3(raw.reference) && reference ? string4(raw.reference, "ref_name", /^(?:refs\/heads\/main|refs\/releases\/[0-9A-Za-z_-]+)$/) : null;
+  if (referenceName === "refs/heads/main" && main?.commit_oid !== reference?.commit_oid) {
+    throw new PulledError("get_git_bundles: main reference must match the authorized main head");
+  }
   return {
     app_id: string4(raw, "app_id"),
     session_id: string4(raw, "session_id"),
     thread_ref: string4(raw, "thread_ref", THREAD_REF),
     author: { name: string4(author, "name"), email: string4(author, "email", /^[^\s<>]+@[^\s<>]+$/) },
     head: head(raw.head),
-    main: head(raw.main),
-    reference: isObject3(raw.reference) && reference ? {
+    main,
+    reference: reference && referenceName ? {
       ...reference,
-      ref_name: string4(raw.reference, "ref_name", /^refs\/releases\/[0-9A-Za-z_-]+$/)
+      ref_name: referenceName
     } : null,
     bundles: raw.bundles.map(bundle),
     lfs_url: url2(raw.lfs_url, "lfs_url")
