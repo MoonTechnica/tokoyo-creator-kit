@@ -91,8 +91,11 @@ function leaveStage2() {
 
 ### WebGPU と KTX2（sdkVersion 2 の既定）
 
-**`@workspace/app-sdk/3d` の `createEngine(canvas)` を await してから Scene を作る**（`manifest.json` は `"renderer": "webgpu"`）。
-SDK が WebGPU の可否と初期化を確認し、使えなければ WebGL2 に切り替える。入力キットには
+**`@workspace/app-sdk/3d` の `createEngine(canvas, { prepare })` を await する**（`manifest.json` は `"renderer": "webgpu"`）。
+`prepare(engine)` 内で Scene と最初の素材を作り、`scene.whenReadyAsync()` の後に
+`engine.beginFrame()` → `scene.render()` → `engine.endFrame()` で最初の描画を確認する。
+失敗した Scene を破棄して例外を返す。SDK が WebGPU の可否・初期化・最初の描画を確認し、
+使えなければ WebGL2 で `prepare` を再試行する。入力キットには
 `engine.getRenderingCanvas()` を渡す（GPU 初期化で canvas を置き換える場合がある）。API の正本は `<kit>/sdk/app-sdk/spec.md` §10。
 
 1. 描画は `engine.runRenderLoop(() => scene.render())`。終了時は `engine.stopRenderLoop()`、`scene.dispose()`、`engine.dispose()`。
