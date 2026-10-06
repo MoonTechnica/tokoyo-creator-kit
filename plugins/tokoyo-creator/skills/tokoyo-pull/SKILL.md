@@ -12,6 +12,9 @@ description: Platform にある TOKOYO.games のゲームを手元に取り込�
 2. **App を決める**: 渡された `app_id`（制作画面の URL なら `/create/<app_id>` の部分）。分からなければ
    `list_apps()` の一覧から利用者に選んでもらう。
 3. `.tokoyo.json` または `get_app` で自分のsession_idを確認し、`get_git_bundles({ app_id, session_id })` を呼ぶ（署名 URL は短命なので、すぐ次へ渡す）。
+   `requires_proposal: true` なら返る `contribution_policy` を読む。以後の各編集依頼の前にも
+   `get_contribution_policy({ app_id })` で最新を確認する。禁止事項・ガイドラインに抵触する依頼は
+   該当の規約と理由を説明して編集を拒否し、素材生成・commit・push は行わない。取得失敗時も作業を止める。
 4. **取り込む**: その App の `.tokoyo.json` があるディレクトリなら
    `node <kit>/scripts/kit.mjs pull --bundles '<get_git_bundles の JSON>'`。
    無ければ新しいディレクトリを作って移り、`node <kit>/scripts/kit.mjs clone --bundles '<同じ JSON>'`。

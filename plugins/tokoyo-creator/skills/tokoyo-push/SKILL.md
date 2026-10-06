@@ -8,6 +8,11 @@ description: 手元で作った TOKOYO.games のゲームを Platform に送る�
 作業ディレクトリ（`.tokoyo.json` のあるところ）で行う。`<kit>` は `.tokoyo.json` の `kit_root`。
 手順・結果の扱い・エラーは **`<kit>/profile/instructions.md` §8.3〜§8.5 が正本**。要点:
 
+貢献ブランチでは最初に `get_contribution_policy({ app_id })` で最新の禁止事項・ガイドラインを取得し、
+依頼と差分全体の遵守を確認する。抵触する場合は該当規約と理由を述べて送信を拒否する。
+その `revision` を `begin_build` / `submit_build` の `policy_revision` に渡す。
+`CONTRIBUTION_POLICY_CHANGED` は規約を取り直して遵守を再確認する。規約の取得失敗では送信しない。
+
 1. `source/` の変更を `git commit` する（未 commit の変更があると `pack` が断る。作者は `kit.mjs clone` が設定した本人のまま）。
 2. `node <kit>/scripts/kit.mjs build` で `source/dist/` を作り（`build.mjs` を直接実行しない。§4.1）、`outputs/build-report.json` を書く（§2）。
 3. `node <kit>/scripts/kit.mjs pack` → 出力の JSON（`session_id` / `files` / `commit_oid` / `base_commit_oid` / `kit_version` / `kit_revision`）。
