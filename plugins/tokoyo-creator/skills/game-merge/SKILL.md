@@ -76,7 +76,7 @@ Platform の規則（別のゲームとのマージでは `listing/` は ours・
 
 **作者・チームの通常編集（`requires_proposal: false`）では`listing/`も普通のgit mergeで合わせます。** 名前や説明の変更はこのゲームの編集者による意図的な変更です。`input/listing.json`の古い値で合流済みの掲載情報を巻き戻しません。衝突したら両方の変更意図を確認し、利用者の手修正保護を守って解決します。
 
-どちらでも、`releaseNotes` は**取り込んだ変更を遊ぶ人向けに 1〜3 行で**書く（`intent` の題名・依頼文から。例「敵が 3 種類になった」）。
+どちらでも、`releaseNotes` は `$game-listing` §2 に従い、**取り込んだ変更を要約する短い見出し**と、遊ぶ人向けの説明を 1〜3 行で書く（`intent` の題名・依頼文も参考にし、実際の変更を説明する。例「## 敵の種類を追加」）。
 誰の提案かは書かない（ゲームのページに Platform がコントリビューターとして添える）。
 取り込んだ変更で遊び方・目的が変わったときだけ、`$game-listing` §2 のとおり `description` / `howToPlay` を直す
 （`userEdited` の項目は変えない）。`listing/icon.*` / `listing/cover.*` が `binary` で衝突したら **ours を残す**。
