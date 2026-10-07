@@ -20,6 +20,7 @@ Platform 側の対応行は `generation_profiles(kind='game', sdk_version=2)`
 │   │   ├── spec.md          # ★ App（画面）の API 契約。最初に読む
 │   │   ├── MIGRATION.md     # 版を上げるときの差分
 │   │   ├── types/           # .d.ts（TypeScript の型。実装は含まない）
+│   │   ├── runtime/         # 分割work・有限frame履歴・固定checkpoint（ゲームbundleへ同梱）
 │   │   └── build-config/    # バンドル設定（SDK を外部参照にする）
 │   ├── app-server-sdk/
 │   │   ├── spec.md          # ★ 対戦のルール（server.bundle.js の defineSpace）の API 契約

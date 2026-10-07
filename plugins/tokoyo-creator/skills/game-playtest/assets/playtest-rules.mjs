@@ -5,7 +5,9 @@
  *   node scripts/playtest-rules.mjs <path>      # 別のルールファイル
  *
  * rules.ts は描画・DOM・音・SDK に触れない純粋な関数だけにする:
- *   init(seed) → state / step(state, input, dt) → state / isOver(state) → boolean / score(state) → number
+ *   init(seed) → state / step(state, input, dt) → state
+ *   アーケードは isOver(state) → boolean / score(state) → number も持つ。
+ *   進行型はPROGRESSIONをtrueにしCHECKSを保存・クエストのrubricへ置換する。
  * 相対 import（./tuning など）は読める。パッケージの import は断る。
  * rollup と TypeScript の変換は SDK の build-config から借りる（Kit が版を固定。ゲームの package.json には書かない）。
  */
@@ -15,10 +17,11 @@ import { pathToFileURL } from 'node:url'
 import { rollup, transpileTypeScript } from '@workspace/app-sdk/build-config'
 
 const REQUIRED = ['init', 'step', 'isOver', 'score']
+const PROGRESSION = false
 const TS_EXTENSIONS = ['.ts', '.mts']
 
 /** rules.ts（と相対 import 先）を JS にして読み込む。 */
-export async function loadRules(entry) {
+export async function loadRules(entry, { progression = false } = {}) {
   const build = await rollup({
     input: resolvePath(entry),
     onwarn: () => {},
@@ -52,10 +55,11 @@ export async function loadRules(entry) {
     const { output } = await build.generate({ format: 'es' })
     const source = Buffer.from(output[0].code).toString('base64')
     const rules = await import(`data:text/javascript;base64,${source}`)
-    const missing = REQUIRED.filter((name) => typeof rules[name] !== 'function')
+    const required = progression ? ['init', 'step'] : REQUIRED
+    const missing = required.filter((name) => typeof rules[name] !== 'function')
     if (missing.length > 0) {
       throw new Error(
-        `rules.ts に ${missing.join(' / ')} が無い（${REQUIRED.join(' / ')} を export する）`
+        `rules.ts に ${missing.join(' / ')} が無い（${required.join(' / ')} を export する）`
       )
     }
     return rules
@@ -92,17 +96,17 @@ export function simulate(rules, { seed = 1, seconds = 30, dt = 1 / 60, input = (
       return {
         over: false,
         endedAt: null,
-        score: rules.score(state),
+        score: rules.score?.(state) ?? null,
         state,
         brokenNumber: broken,
         samples,
       }
-    if (index % Math.round(1 / dt) === 0) samples.push(rules.score(state))
-    if (rules.isOver(state)) {
+    if (index % Math.round(1 / dt) === 0) samples.push(rules.score?.(state) ?? null)
+    if (rules.isOver?.(state)) {
       return {
         over: true,
         endedAt: t,
-        score: rules.score(state),
+        score: rules.score?.(state) ?? null,
         state,
         brokenNumber: null,
         samples,
@@ -112,7 +116,7 @@ export function simulate(rules, { seed = 1, seconds = 30, dt = 1 / 60, input = (
   return {
     over: false,
     endedAt: null,
-    score: rules.score(state),
+    score: rules.score?.(state) ?? null,
     state,
     brokenNumber: null,
     samples,
@@ -195,7 +199,7 @@ function checksFor(rules) {
 
 async function main() {
   const entry = process.argv[2] ?? 'src/rules.ts'
-  const rules = await loadRules(entry)
+  const rules = await loadRules(entry, { progression: PROGRESSION })
   const { ok } = runChecks(checksFor(rules))
   process.exitCode = ok ? 0 : 1
 }

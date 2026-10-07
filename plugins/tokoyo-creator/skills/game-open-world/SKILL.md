@@ -1,157 +1,102 @@
 ---
 name: game-open-world
-description: 広い世界を歩き回るゲーム（オープンワールド・探索・サンドボックス・無限に続く地形）を、スマートフォンでも落ちないように作る。世界をチャンクに分けて今いる場所の周りだけを読み込み・解放する、地形と配置を seed から作る（決定的な乱数とノイズ）、遠くを隠す、地域ごとの素材を bundles の group にして先読みさせる、セーブを seed と差分だけにする、協力プレイで世界を共有して 30 分ごとに卓を立て直す、を扱う。遊びの説明に「広い世界」「探索」「歩き回る」「冒険」「島」「無限」「サンドボックス」「開拓」「クラフト」があるときに使う。open world, procedural, chunk streaming, seed, terrain.
+description: 広い世界を局所的に読み込み、解放して長く遊べるようにする。作者設計map/seed生成、時間予算、活動NPC、地域資源の所有、進行保存/再開、協力卓のチェックポイントを扱う。探索・RPG・サンドボックスを作るときに使う。open world, RPG, chunks, streaming, save, memory.
 ---
 
-# オープンワールド
+# オープンワールド・長時間探索
 
-**3D の書き方（`WebGPUEngine` / `Engine`・KTX2・メモリ）は `$game-3d-and-bundles`、API の正本は `<kit>/sdk/app-sdk/spec.md`**
-（§3.2 `app.store` の `blob`、§3.6 `app.bundles` の `hint`、§8.2 `app.documents`、§10 描画）。先に読む。
-下のコード（mulberry32・整数ハッシュ・チャンクの範囲）はそのまま使ってよい。
+RPGの進行は `$game-design` references/rpg.md。SDK APIの正本は `<kit>/sdk/app-sdk/spec.md`。
+エンジンAPIは同梱版の型/公式Skill。存在しないThree.js APIをBabylon/Phaserへ持ち込まない。
+世界規模・活動NPC・生成・描画方式を決める段階で `$game-design` references/performance-risk.md を読み、
+懸念を先に伝え、代表的な地域の最小試作を実描画して比較する。広げてから負荷を調べない。
 
-**原則: 世界を丸ごと持たない。** 持つのは seed（種）と、プレイヤーが変えたところだけ。地形と配置は、要るときに seed から作り直す。
+## 1. 世界と活動範囲
 
-## 1. チャンク（今いる場所の周りだけを持つ）
+作者設計の地域データ/tilemap/GLB、seed生成、両者の組み合わせを使える。総面積ではなく現在の負荷を限定する。
 
-| 項目 | 値 |
-|---|---|
-| 1 チャンクの大きさ | **32〜64 m 四方**（3D）/ 32〜64 タイル（2D） |
-| 読み込み半径 r | **PC 3 / スマートフォン 2**（`matchMedia('(pointer: coarse)')` で分ける） |
-| 解放 | **半径 r + 1 の外へ出たら**解放する（境目を行き来しても読み込みと解放を繰り返さない） |
-| 順番 | 近い順、同じ近さなら**進行方向を先**に |
-| 1 フレームに作る数 | **1 チャンクまで**（まとめて作ると、そのフレームが止まって見える） |
-| 同時に持つ量 | `(2r + 1)² × 1 チャンクの展開後の大きさ` を §5 の予算に収める（r = 3 なら 49 個） |
+- 地形はチャンクへ分割する。32mや32–64tileは初期候補であり保証値ではない。
+- 読み込み半径r、保持半径r+1、描画、physics、AI、骨格animationの範囲を別に決める。
+  r=2なら読み込み25に対し保持集合の保守的上限49。r=3なら49に対し81。
+- pointer:coarseは操作方式の判定だけ。スマホ/PCやWebGPU対応だけで性能を判断しない。
+- 中心チャンク/進行方向が変わった時にqueueを更新する。全候補を毎frame配列化/sortしない。
+- 近傍NPCの感知/経路探索だけ更新し、時間分散と要求上限を持つ。不可視meshにも計算が残り得る。
+- 表示と衝突が準備できるまで未ロード地域へ進めない。teleportはロード画面と進捗を用意する。
 
-```ts
-function streamChunks() {
-  const center = chunkOf(player.x, player.z)
-  for (const coord of chunksToRelease(loadedCoords(), center, RADIUS)) release(coord)  // r + 1 の外
-  const next = chunksToLoad(center, RADIUS, heading).find((c) => !isLoaded(c))       // 近い順・進行方向優先
-  if (next) build(next)                                                             // 1 フレームに 1 つ
-}
-```
+## 2. 時間予算と取消
 
-- **解放は `dispose()` まで**: そのチャンクで作った `geometry.dispose()` / `texture.dispose()`、共有していない
-  `material.dispose()` を呼んで `scene.remove()` する。`dispose()` しないと GPU のメモリは返らない。
-  同じ形・同じ色のもの（木・岩・石）は geometry と material を**全チャンクで 1 つ**にして使い回す（`InstancedMesh` も可）。
-- 開発中は `scene.meshes.length` / `scene.textures.length`を画面の隅に出し、歩き回っても**増え続けない**ことを確かめる。
-- **遠くに穴を見せない**: 読み込み半径の少し手前から霧（`scene.fog`）で隠すか、低い解像度の地形の輪（LOD）を
-  外側に置く。カメラの `far` を読み込み半径 + 1 チャンクに合わせる。
-
-## 2. seed から作る（どの端末でも同じ世界）
-
-- **`Math.random()` を世界の生成に使わない**（seed を渡せない）。seed 付きの擬似乱数 **mulberry32** を使い、
-  チャンクごとに `seed` とチャンク座標から混ぜた値で作り直す（前のチャンクの乱数の続きにしない。読む順で世界が変わる）。
-- **`Math.sin` / `Math.cos` / `Math.pow` / `Math.exp` などを世界の生成に使わない**（精度が決まっておらず、端末・ブラウザで
-  結果が違ってよい。協力プレイで世界が食い違う）。ノイズは**整数のハッシュ（`Math.imul` / xor / シフト）と四則**で作る。
-  カメラや演出（端末ごとに違ってよいもの）には使ってよい。
+「1フレーム1チャンク」は停止時間を保証しない。生成/組立/decode/GPU登録/解放を小さな工程に分ける。
 
 ```ts
-export function mulberry32(seed: number): () => number {
-  let state = seed >>> 0
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0
-    let t = state
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
+import { createWorkQueue, createFrameStats } from '@workspace/app-sdk/runtime'
+const work = createWorkQueue({ maxPending: 128, maxSteps: 32 })
+const frames = createFrameStats()
+function frame() {
+  frames.record(performance.now()) // Phaserの平滑化deltaを計測に使わない
+  work.tick(2)                    // 調整用初期値。同期step自体は中断できない
+  // 既存engineのupdate/renderを続ける。第二のRAFを作らない
 }
-
-function hash3(seed: number, x: number, z: number): number {
-  let h = Math.imul(x | 0, 0x27d4eb2d) ^ Math.imul(z | 0, 0x165667b1) ^ Math.imul(seed | 0, 0x1b873593)
-  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b)
-  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35)
-  return (h ^ (h >>> 16)) >>> 0
+function* buildRegion() {
+  // 小さな単位でCPU生成しyield。最後にengineへ登録する
+  // 取消時はfinallyで未登録の地域専用資源を解放する
 }
-// value noise: 格子点の hash3 を smoothstep（t * t * (3 - 2 * t)）で補間。大きな起伏 + 細かい起伏を足す
+work.add('region-id', buildRegion())
 ```
 
-- 隣のチャンクとの境目は**同じ式の同じ座標**で高さを出す（`cx * SIZE + i * STEP`）。継ぎ目が出ない。
-- 置き物の id は **`<cx>:<cz>:<番号>`** のように seed とチャンクで決まる形にする。拾った・壊したの印として保存できる。
-- 生成の関数は描画から切り離した純粋関数にして、**同じ seed で同じチャンクになる**ことを単体テストで確かめる
-  （`src/world.ts` + `src/world.test.ts`）。
+- 地域離脱でwork.cancel(id)。通信の後着は世代/所有を照合し、不要meshを登録せず解放する。
+- 大きな同期decode/uploadをasync関数で包むだけでは分割にならない。素材分割と段階別測定が先。
+- pauseで時計の基準をresetしsimulationを止める。通常の低FPSを一律33ms capで遅くしない。
+- frame p50/p95/p99と最大停止、各jobの時間を記録。CPU描画時間はGPU完了時間ではない。
 
-## 3. 地域ごとの素材（`bundles/` と `group`）
+## 3. 資源の所有と地域素材
 
-地形と配置は seed から作り、**素材（建物・敵・その地域の BGM）だけ**を地域ごとのバンドルにする。
+bundles/<地域>/へ素材/定義を置きmanifestへ宣言。使う前にapp.bundles.load(name)を待つ。
+隣地域はapp.bundles.hint(neighbors)（最大8名）で先読みできる。
+Cacheありの先読みは永続cacheへ、なしの場合はHost保持32MiB予算。decode/GPUメモリとは別。
 
-```jsonc
-// manifest.json（sdkVersion 2）
-"bundles": {
-  "town":    { "load": "background" },                  // 始まりの地域
-  "forest":  { "load": "demand", "group": "north" },    // group = 同時に読む組（メモリの見積もりもこの単位）
-  "ruins":   { "load": "demand", "group": "north" },
-  "desert":  { "load": "demand", "group": "south" }
-}
-```
+- 地域専用資源と常駐/共有資源を分け、最後の利用者が共有資源を解放する。
+- **Babylon**: 地域meshはmesh.dispose()。共有material/textureを地域退出時に破棄しない。
+  container複製を解放してから所有containerをdispose。霧はscene.fogMode/fogStart/fogEnd、clipはcamera.maxZ。
+  thin instancesは地域×モデル単位。収集物は通常instance/pool。freezeActiveMeshes()を常時既定にしない。
+- **Phaser**: GameObject/layer/map/body→専用TextureManager/cache/audioの順に片付ける。
+  Scene sleepは解放ではない。SHUTDOWNで外部listener/timerを解除。共通atlasは最後まで保持。
+- engine資源を片付けてからapp.bundles.unload(name)。URL revokeだけではGPU/audioは解放されない。
+- loading中unloadは旧loadを拒否し、不要な後着をURL化しない。再loadは未完了の同じ不変bundleに合流する。
+  複数地域が同じbundleを借りるなら利用者数を管理し、最後の利用者だけunloadする。
 
-```ts
-async function enterRegion(region: string, leaving: string) {
-  // 地域を移るたびに、今いる地域の隣を先読みさせる（任意。最大 8 個。同じ group は一緒に取られる）
-  app.bundles.hint(neighborsOf(region))
-  // 使う前には必ず load（先読みが終わっている保証は無い）。離れた地域は dispose() してから unload
-  await app.bundles.load(region, { onProgress: drawBar })
-  app.bundles.unload(leaving)
-}
-```
+## 4. 決定的生成と保存
 
-- 先読みは Host が 32 MiB まで持つ。`hint` に入らなくなった地域の先読みは手放される。
-- **検証のメモリ見積もりは「起動前の分 + いちばん大きい group の合計」**。地域を group に分けると、同時に持たない地域が
-  見積もりに入らない。group を付けないと、いちばん大きい 1 つだけが数えられる。
+- 生成worldはseed＋生成方式version＋安定ID＋差分＋位置/進行を保存。作者設計worldは定義版＋安定ID＋進行。
+- 生成は描画から分離し整数hash/seed付き乱数を使う。Math.randomや実装依存sin noiseを使わない。
+  同seed/version/座標の再現と境界一致を検査。camera方向のsin/cosは生成ではない。
+- 改変はblobへ。上限1MiBはgzip+base64後の最終JSON UTF-8。圧縮だけで無限改変を保証しない。
+- 活動中の定期/重要進行時にdirtyをまとめ、毎分12write以内で保存する。
+  createCheckpointで単一flight/固定snapshot/同requestId再送/ACKした変更だけ確認できる。
+- onPauseでstore APIを呼ばない（paused中は拒否）。入力/simulationを止め、resume後に未保存分を再試行する。
+  OS終了前の非同期完了は保証しない。未保存/最後の確定/競合/容量超過を画面で知らせる。
+- 毎保存で最新revisionだけreadして古いローカルworldを上書きしない。起動revision→ACK revisionを使う。
+- 生成版変更/rollbackで旧IDが別物を指さないようにする。読めない旧セーブを消して新worldにしない。
 
-## 4. セーブは seed + 差分
+## 5. メモリ予算
 
-- 保存するのは **seed、プレイヤーが変えたところ（拾った・壊した・置いたものの id と中身）、位置と持ち物**だけ。
-  地形・木・岩の位置は保存しない（seed から作り直せる）。
-- 差分は **`storeSchema` の `blob` 型**のフィールドに置く（SDK が gzip して送る。上限は圧縮後で **1 MiB**）。
+素材の静的概算＋保持チャンク集合＋旧新地域の重複＋decode/upload＋手続き生成＋骨格/RTT/保存snapshotを計上する。
+groupは同時保持の宣言であり実行時の保持数を強制しない。見積もりは実機安全性の保証ではない。
 
-```jsonc
-"storeSchema": { "fields": {
-  "seed":    { "type": "number", "default": 0 },     // 0 = まだ世界が無い（初めて遊ぶ）
-  "changes": { "type": "blob",   "default": null }   // { collected: [...], placed: [...], position: {...} }
-} },
-"capabilities": ["store.read", "store.write"]
-```
+- 3D textureはKTX2候補。圧縮対応時とRGBA fallbackを別計上。Phaser Loader対応を確認せず一律要求しない。
+- 単色/頂点色で済む地形はtexture不要。長いBGMはstreaming、短い効果音は共有decode。
+- 512/768MiBは素材警告の目安。OS総メモリ上限ではない。対象端末でruntime資源の頭打ちを確認する。
 
-- **オートセーブは 1 分に 1 回まとめる**（変わった印を付け、タイマーで `set`）。`app.lifecycle.onPause` でも書く。
-  書き込みは毎分 12 回までなので、拾うたびに書かない。
-- 新しい世界の seed は `crypto.getRandomValues(new Uint32Array(1))`（0 は「無い」の印なので避ける）。
-- 差分が 1 MiB に近づく遊び（何でも置ける・壊せる）は、チャンクごとにまとめて古い変更を上書きする
-  （同じマスの変更は最後の 1 つだけ持つ）。
+## 6. 協力world
 
-## 5. メモリ（スマートフォンで落ちないために）
-
-`$game-3d-and-bundles` §3 に従う。オープンワールドで特に効くもの:
-
-- テクスチャは **KTX2**（`convert_texture`）。PNG のままだと 1 画素 4 byte で、チャンクが増えるほど効いてくる。
-- 地形の頂点色・単色のマテリアルで済むところはテクスチャを使わない。
-- チャンク 1 つの展開後の大きさ × `(2r + 1)²` + 起動前の分 + group の合計 ≤ **512 MiB**（2〜3 GB の端末も狙うなら 256 MiB）。
-- BGM は地域ごとに `<audio>` でストリーミングする（`decodeAudioData` で丸ごと持たない）。
-
-## 6. 協力プレイの世界（2 人以上で同じ世界を歩く）
-
-| 何 | 誰が持つ |
-|---|---|
-| 地形・配置（seed から決まるもの） | **各端末が seed から作る**（通信しない） |
-| 改変・プレイヤーの位置・敵 | 一緒に遊んでいる間は **対戦サーバー**（`$game-multiplayer`） |
-| 世界の保存（次に集まるときまで） | **`app.documents`** の `worlds` コレクションに seed + 差分（`$game-documents`。`maxBytes` は 1 MiB まで） |
-| 各自の持ち物 | 各自の `app.store` |
-
-- `documentSchema` の `worlds` は `members` を遊ぶ人数に、`write` を `owner`（卓を立てた人だけが書く）か `member` にする。
-- **1 回の卓は最長 30 分**（`maxDurationSec` は 1800 まで）。長く遊ぶなら **30 分ごとに世界を保存して卓を立て直す**:
-  `session.onFinish` に `finish.reason === 'timeout'`（時間切れ）が来たら差分を `worlds` に書き、「続きから」ボタンで新しい卓を立てて同じ場を読む
-  （`session` は `app.space.join` が返したもの。`app-sdk/spec.md` §3.3）。
-  終わる数分前に画面で知らせる。
-- 全員が同じ seed を使う（場の作成時に seed を決めて `worlds` に書き、入った人はそれを読む）。
+ルール/敵/改変は `$game-multiplayer` のサーバー権威。次回のworldは `$game-documents`、個人持ち物はstore。
+共有documentのサイズ/件数/失効/書込権を守る。1卓は最長30分でソロの総プレイ時間制限ではない。
+**上限前から定期チェックポイント。timeoutのonFinishで初めて保存しない。** 切断/所有者交代/競合を定義し、
+終了前に知らせ次の卓から続ける導線を作る。永久共有世界や無期限卓を既存SDKが保証すると説明しない。
 
 ## 7. チェック
 
-- [ ] 生成に `Math.random` / `Math.sin` などを使っていない（mulberry32 + 整数ハッシュ + 四則）
-- [ ] 同じ seed で同じチャンクになる単体テストがある
-- [ ] 読み込み半径（PC 3 / スマホ 2）と解放半径（+ 1）、1 フレームに 1 チャンク、進行方向優先
-- [ ] 解放で `dispose()` し、`scene.meshes` / `scene.textures` が歩き回っても増え続けない
-- [ ] 遠くを霧か LOD で隠している
-- [ ] セーブは seed + 差分（`blob`）、オートセーブは 1 分に 1 回 + `onPause`
-- [ ] 地域の素材は `bundles` + `group`、地域を移るたびに `hint`
-- [ ] 協力プレイなら `worlds` に保存し、30 分で卓を立て直す流れがある
+- [ ] 生成版/安定IDと進行保存/再開があり、読込失敗を空データで上書きしない
+- [ ] 作業は時間/個数の予算を持ち、不要jobと後着結果を解放する
+- [ ] 保持r+1/遷移ピーク/共有資源を予算に含める
+- [ ] NPC/physics/骨格/探索を局所化し、描画非表示だけで停止と扱わない
+- [ ] pause/resumeが冪等で、停止中APIを呼ばず活動中に保存を確定する
+- [ ] 公開前スモークと長時間QAの未確認を区別。長時間QAは `$game-playtest` §5

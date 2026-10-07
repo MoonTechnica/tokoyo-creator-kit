@@ -1,7 +1,7 @@
 {
   "name": "tokoyo-creator",
   "displayName": "TOKOYO.games Creator",
-  "version": "2.5.46f1c333",
+  "version": "2.5.d2fa12ea",
   "description": "TOKOYO.games のミニゲームを手元の Coding Agent で作る Creator Kit（Skills・SDK・検証器・Platform MCP）",
   "author": {
     "name": "Moon Technica"

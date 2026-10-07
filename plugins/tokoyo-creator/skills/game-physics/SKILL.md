@@ -56,6 +56,8 @@ startPhysics().catch((error: unknown) => console.error(error))
 
 1. `dt` は固定（`1 / 60`、対戦は `1 / tickRate`）。描画の可変時間を物理の step に使わない。
    描画フレームが遅い分は回数で追いかけ、1 フレーム最大 3 tick まで。
+   余剰accumulatorを無限に持たず過負荷時の時間の扱いを決める。pause復帰で時計をresetし追いつきstormを防ぐ。
+   Phaser Arcadeの固定stepへ同じaccumulatorを二重適用しない。
 2. 物理は `stepPhysics(scene, dt)` で 1 tick だけ進める。描画の `scene.render()` から物理を step しない。
 3. 物理の世界を作る関数はルールから export し、1 人用・練習モード・対戦サーバーが共有する。
    卓ごとに Scene を持ち、同じ Sandbox の別の卓と共有しない（`ctx.state` をキーに `WeakMap`）。
@@ -65,6 +67,9 @@ startPhysics().catch((error: unknown) => console.error(error))
 5. 1 人用は headless の TransformNode を visible Mesh に写す。位置は `copyFrom`、向きは `rotationQuaternion.copyFrom`。
    毎回の Mesh / shape 生成を避ける。GPU の粒子や cloth は見た目の飾りだけにする。
 6. 終了時は `disposePhysicsScene(scene)`。リトライ・ステージ切り替え・卓終了で Scene と WASM の剛体を残さない。
+7. 背景はSTATIC、動く物だけDYNAMIC。簡素shape/maskと近傍の活動範囲。飾りにcolliderを付けない。
+   不可視でもbody/AIは動き得る。地域離脱でbody/shape/node/observerを解放し共有shapeは最後まで保持。
+   未準備の衝突地域へ進めない。headless stepPhysicsはplugin直呼びなのでhelper周囲で時間を測る。
 
 ## 3. 2D（Rapier 決定版）
 

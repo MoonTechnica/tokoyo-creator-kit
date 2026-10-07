@@ -17,10 +17,10 @@ description: ゲームを作る工程の正本。依頼を受けたら最初に�
 | 1 | 企画 | `design/brief.md` の全見出しが埋まり、ジャンルの下限（[references/genres-minimum.md](references/genres-minimum.md)）が列挙されている | この Skill §2 |
 | 2 | 絵で合意 | コンセプト画像とスタイルガイドがある。利用者に見せるべきなら見せて終える | `$game-art-direction` |
 | 3 | 素材の設計 | `design/asset-manifest.md` の全行に経路・理由・枠があり、合計が予算内 | `$game-art-direction` |
-| 4 | 核を遊べる形に | `src/rules.ts` と `src/tuning.ts` があり、四角と円だけで 開始 → 遊ぶ → 勝ち / 負け → 再挑戦 が回る。ルールの検査が通る（`rules.ts` の無い前の版を続けるときは下の「2 回目以降」） | この Skill §3、`$game-playtest` |
+| 4 | 核を遊べる形に | 開始 → 核の行為 → 結果/進行 → 次の区切りが回る。進行型は保存 → 再開も核として検査する（`rules.ts` の無い前の版を続けるときは下の「2 回目以降」） | この Skill §3、`$game-playtest` |
 | 5 | 素材の差し替え | manifest の全行が済み | `$game-asset-tools` |
-| 6 | 遊んで直す | `design/playtest.md` の必須項目が全部 ✓。このターンで確かめられない項目（Platform の試遊で見るもの）は「次のターン」と書き、✓ を付けない | `$game-playtest` |
-| 7 | 数値で整える | 最初の 10〜20 秒は失敗しにくく、1 回がセッション長に収まる。`tuning.ts` の値だけで直した | この Skill §3 |
+| 6 | 遊んで直す | 確認済みと未確認が明確。確認できた重大な失敗は修正済み。公開前検証/作者プレビュー待ちへ ✓ を付けない | `$game-playtest` |
+| 7 | 数値で整える | 導入は安全で、区切りの長さと難易度がbriefに合う。全作品に短時間終了を課さない | この Skill §3 |
 | 8 | 磨く | §4 のチェックが埋まる。**この段階で機能を足さない** | `$game-ux` |
 | 9 | 掲載 | `$game-listing` のチェック | `$game-listing` |
 
@@ -34,6 +34,9 @@ description: ゲームを作る工程の正本。依頼を受けたら最初に�
   ルール検査（`$game-playtest` §2）はその版では省き、`notes` に「rules.ts が無いのでルール検査を省いた」と 1 行書く。
   `rules.ts` / `tuning.ts` に分けるのは、遊びの核から作り直すとき（段階 1 から）だけ。派生では分けない。
 - 自己試遊の結果（`./input/playtest-report.json`）があれば、段階 6 の前に読んで直す（`$game-playtest`）。
+- **設計時と重い表現を足す前に性能を確認する。** [references/performance-risk.md](references/performance-risk.md) に従い、
+  懸念を先に伝え、利用できる描画環境で小さく試作して負荷を比較する。完成後だけの確認にしない。
+  警告で承認待ちにせず、軽量案で制作を続ける。実測できなかった環境は未確認と明記する。
 
 ## 2. 企画（`design/brief.md`）
 
@@ -66,7 +69,7 @@ Canvas 2D（動く物が少ない）
 | 動詞 | 遊ぶ人が何度も繰り返す操作を 1 つ。依頼に複数あれば、いちばん触る回数が多いものを核にし、残りは補助にする |
 | 狙う感じ | 挑戦 / 爽快感 / 見立て（Fantasy）/ 物語 / 仲間 / 発見 / 表現 / 暇つぶし（Submission）から 1〜2 個。手応えと絵の選択がこれに揃う |
 | 勝ち・負け・終わり | 必ず決める。終わりの無い遊び（育成・放置）でも「1 回の区切り」を決める |
-| 1 回の長さ | ミニゲームは 30 秒〜3 分。対戦は 1 試合 |
+| 1 回の長さ | 操作/戦闘/クエストの区切り、1回のプレイ、作品全体を区別する。短時間ゲームは30秒〜3分が目安、協力卓は現行上限内 |
 | 作らないもの | 依頼に無く、核の完成に要らないもの。**ここに書いたものは作らない** |
 | ジャンルと下限 | [references/genres-minimum.md](references/genres-minimum.md) の該当行を写す。**下限は依頼に無くても作る**。下限を超える機能は依頼にあるときだけ |
 | 道具 | `instructions.md` §4.2 の選び方 |
@@ -85,6 +88,9 @@ src/
 - `tuning.ts` は `export const tuning = { ... } as const` 1 つ。数値をコードに散らさない。
 - `rules.ts` は純粋な関数で書く: `init(seed)` / `step(state, input, dt)` / `isOver(state)` / `score(state)` の形。
   乱数は seed から（`Math.random` を直接使わない）。これで `node` からルールだけを回せる（`$game-playtest` §2）。
+  RPGで不要なscore/ゲーム全体のisOverを強制しない。定義データとruntime進行を分け、局所更新を検査可能にする。
+  毎frameの全世界deep cloneは行わず、保存時の固定snapshotとsimulationを分離する。
+- RPG/長期探索は [references/rpg.md](references/rpg.md) を先に読む。会話・クエスト・所持品は依頼の核に必要なものだけ作る。
 - 対戦は `rules.ts` の関数（手番・勝敗の判定・1 tick の計算）を `server/main.ts` の `defineSpace` から呼ぶ。ルールを書くのは `rules.ts` の
   1 か所だけで、`defineSpace` はそれを Platform につなぐ（`$game-multiplayer` §2）。`tuning.ts` は画面とサーバーが同じものを import する。
 - **プレイヤーに有利に「ごまかす」**のは既定で入れる（`tuning.ts` に値を置く）:
@@ -108,3 +114,4 @@ src/
 1. 何を作った / 変えたか（1〜2 行）
 2. 確かめたこと（`design/playtest.md` の結果から 2〜3 行。「ビルドが通った」ではなく遊びの振る舞いで）
 3. 作らなかったもの・できなかったこと（あれば 1 行）
+4. 性能の懸念があれば、推定/実測・測定環境・軽量化・未確認の端末を短く書く。

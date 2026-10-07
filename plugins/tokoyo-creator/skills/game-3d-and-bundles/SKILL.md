@@ -5,6 +5,9 @@ description: 3D のゲーム（同梱の Babylon.js の WebGPUEngine。WebGPU �
 
 # 3D と大きいゲーム
 
+全画面shader・雲/霧・透明描画の重なり・動的影を設計/追加するときは、
+`$game-design` references/performance-risk.md を先に読む。実装を広げる前に小さく実描画を比較し、懸念を利用者へ伝える。
+
 ## 1. バンドルの分割（大きいゲーム）
 
 **最初の画面に要るものだけを `bundles/` の外（`assets/`）に置く。** 2 面目以降のステージ・BGM・3D モデルは
@@ -82,7 +85,8 @@ function leaveStage2() {
   モデルの読み込みは SDK の `loadModel(path, scene)` を使う（`app.assets.url()` と GLB 拡張指定・ローダーの登録をまとめて扱う）。
   `EXT_meshopt_compression` は同梱の meshoptimizer 1.2.0 の JS デコーダー（WASM 内包）で読む。Worker / CDN を使わない。
 - GLB は `AssetContainer` で持ち、`addAllToScene()` で表示する。同じモデルを複数表示するときは
-  `instantiateModelsToScene()` を使う。複製を片付けてから元の container を `dispose()` する。
+  `instantiateModelsToScene(undefined, false, { doNotInstantiate: false })`は互換な静的meshをinstanceにする候補。
+  同梱9.29.0はdoNotInstantiate:trueが既定、独立骨格付きmeshはcloneになる。複製を解放してからcontainerをdisposeする。
 - 画面は全面（`$game-screen-layout` §1）。ポーズは `engine.stopRenderLoop()`、再開は同じフレーム関数で `engine.runRenderLoop(frame)`。
 - 操作は `$game-controls` の references/genres.md §10（左のスティックで移動、右半分のドラッグでカメラ）。
   Babylon の `camera.attachControl()` でキーボード入力を二重に持たず、入力キットの値からカメラとキャラを動かす。
@@ -101,8 +105,11 @@ function leaveStage2() {
 1. 描画は `engine.runRenderLoop(() => scene.render())`。終了時は `engine.stopRenderLoop()`、`scene.dispose()`、`engine.dispose()`。
 2. マテリアルは Babylon の `StandardMaterial` / `PBRMaterial` / `NodeMaterial`。独自 shader はネイティブ WGSL。GLSL → WebGPU の外部コンパイラを使わない。
    独自 WGSL は WebGPU の飾りだけにし、WebGL2 では標準マテリアルで遊べるようにする。
-3. スマートフォンの描画解像度は DPR 1.5 まで。SDK の `createEngine` が設定する。画面サイズ変更で `engine.resize()`。
-4. compute など WebGPU 専用の飾りは `engine.isWebGPU` のときだけ使い、WebGL2 でも遊べるようにする。
+3. DPRは既定最大1.5。createEngineのmaxDevicePixelRatio/antialiasで明示的な低負荷設定を選べる。
+   WebGPU対応は速度保証ではない。実測に合わせ装飾と解像度を別制御。画面変更でengine.resize()。
+4. WebGPU専用飾りは対応確認に加え時間予算と簡素設定を持つ。WebGL2でも遊べるようにする。
+   雲のraymarch/透明重なり/影/RTTを無制限に増やさない。freezeActiveMeshesやsnapshot renderingは動的worldの一律既定にしない。
+   useLargeWorldRenderingは座標精度が必要な場合だけ。局所ロード/LODの代替ではない。
 5. 最初の描画と素材の読み込みに失敗したらログとエラー表示を出す。白い画面のままにしない。
 6. GLB の animation は `container.animationGroups` から名前で選び `start(true)` で繰り返す。毎フレーム mixer を自作しない。
 
@@ -131,13 +138,15 @@ PNG をそのまま大量の 3D テクスチャにしない。GLB の `KHR_textu
 - **テクスチャは 1 辺 1024px まで**を基本にする（2048px は画面の主役 1〜2 枚だけ）。
   UI・アイコン・遠くのものは 512px 以下。縦横は 2 のべき乗にする。
 - **ステージは 1 つずつ読む。** 次のステージの `app.bundles.load()` の前に、今のステージを片付ける:
-  - Babylon.js: 使い終わった `AssetContainer.dispose()` を呼ぶ。単体のメッシュは `mesh.dispose(false, true)`
-    （共有マテリアル・テクスチャは最後の利用者が片付ける）。`dispose()` しないと GPU のメモリは返らない
+  - Babylon.js: 複製を解放してから所有AssetContainer.dispose()。単体meshはmesh.dispose()で外す。
+    material/textureは専用所有物だけ最後に解放し、共有資源へdispose(false,true)を一律に使わない
   - Canvas 2D: `createImageBitmap()` で作った画像は `bitmap.close()`、`Image` は参照を外す
   - 最後に `app.bundles.unload('<名前>')`
 - **BGM は `<audio>` で流す**（`const bgm = new Audio(app.assets.url('bundles/town/bgm.mp3')); bgm.loop = true`）。
   `decodeAudioData` で丸ごと PCM にしない（ステレオ 1 分で約 22 MiB）。`<audio>` なら圧縮したまま少しずつ再生される。
   音が鳴るのは最初のタップ / クリックの後（`$game-controls`）。効果音は短いものだけまとめて 1 回 decode して使い回す。
 - 同じ画像・モデルを何度も読み込まない（一度読んだものを使い回す）。
+  静的概算は実機総メモリではない。保持猶予/地域遷移/手続きmesh/decode/upload/RTT/骨格のピークを計上。
+  圧縮対応時とRGBA fallbackを分け、frame p95/p99/最大停止と資源数を測る。
 - 広い世界を歩き回るゲームは、ステージ単位ではなくチャンク単位で読み込み・解放する（`$game-open-world`）。
   地域ごとのバンドルは `group` で組にし、地域を移るたびに `app.bundles.hint([...])` で隣を先読みさせる。

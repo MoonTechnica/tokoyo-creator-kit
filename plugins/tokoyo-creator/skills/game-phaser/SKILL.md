@@ -5,6 +5,9 @@ description: 同梱の 2D ゲームエンジン Phaser 4 で作るときの Plat
 
 # 2D のゲームエンジン（同梱の Phaser 4）
 
+多数の粒子・重なる透明描画・全画面filter・大量NPCを設計/追加するときは、
+`$game-design` references/performance-risk.md を先に読む。実描画の比較と事前警告を省かない。
+
 Kit には **Phaser 4**（`<kit>/sdk/package.json` の版）が入っている。**使うかどうかは作りたいゲームで決める**
 （`instructions.md` §4.2）。この Skill は **Phaser を使うと決めたとき**の決まりごと。
 
@@ -60,7 +63,7 @@ class Main extends Phaser.Scene {
   }
   create() { /* … */ }
   update(_time: number, delta: number) {
-    const dt = Math.min(delta, 1000 / 30) / 1000        // 止まっていた時間ぶん一気に進めない
+    const dt = delta / 1000 // Phaserの時計。通常の低FPSを一律33ms capで遅くしない
     // input.move / input.pressed('…') でゲームを動かす
     input.endFrame()                                   // 毎フレームの最後に 1 回
   }
@@ -136,7 +139,8 @@ Platform の中では Artifact のファイルに URL が無い。**Loader に�
 | A. 固定の論理サイズを拡大縮小（盤面・パズル・カード・固定画面のアクション） | `mode: Phaser.Scale.FIT`, `autoCenter: CENTER_BOTH` | 基準の大きさ（`width` × `height`）のまま。余りは帯になる |
 | B. 見える範囲を広げる（横スクロール・見下ろし・ランナー） | `mode: Phaser.Scale.EXPAND`, `autoCenter: CENTER_BOTH` | 基準の大きさが必ず入り、長い辺の方向に広がる。`this.scale.gameSize` が今の見える範囲 |
 
-- 基準の大きさは**実際の画面より大きめ**にする（縦 720×1280 / 横 1280×720）。縮めて描くのでぼけない。
+- 基準は論理viewportと描画画素数を区別して決める。720×1280 / 1280×720は候補で一律必須ではない。
+  読みやすいHUDと入力座標を保ち、低負荷backbufferを比較する。DPRやpointerから速度を推定しない。
   ドット絵は `pixelArt: true`（拡大縮小で滲まない）。
 - 回転・全画面の切り替えで大きさが変わる。**`this.scale.on('resize', () => this.layout())`** で HUD・可動範囲・
   `this.physics.world.setBounds(…)` を決め直す（B では `this.scale.gameSize` の幅と高さを使う）。
@@ -173,6 +177,19 @@ Arcade / Matter は端末ごとに結果が同じになる約束が無い。対�
   ```
 
 ## 8. 出力前のチェック
+
+### 長時間・大量オブジェクト
+
+- TilemapLayerのcameraカリングを利用。GPU layerは内容変更頻度と端末で比較し全mapを毎frame再uploadしない。
+  [Phaser4 Rendering Concepts](https://phaser.io/tutorials/phaser-4-rendering-concepts)もmobileで常に有利とはしていない。
+- atlasと描画状態をまとめる。大量数値はBitmapText候補、日本語全文字を巨大atlasへ一律変換しない。
+- 弾/敵は有限pool。非表示/inactiveに加えbody停止、速度/tween/animation/timerをreset。
+- AI/pathfinding/physicsは活動範囲と時間予算を持つ。描画カリングは計算や素材の解放ではない。
+- Scene SHUTDOWNで外部resize/inputを解除。sleepは保持、TextureManager/SoundManagerはScene共通。
+  使用中textureをremoveせず専用資源を最後の利用者が解放してからbundleをunloadする。
+- Phaser TimeStep/Arcade固定stepへ第二のclockを被せない。pause/resumeで計測基準をreset。
+  実frame間隔は `@workspace/app-sdk/runtime` のcreateFrameStatsで記録できる。
+- RPGは `$game-design` references/rpg.md、地域寿命は `$game-open-world`。
 
 照明・normal map・色調・filters を決める前に `$game-art-direction` の references/visual-direction.md §4 を読む。
 素材の粒度と焼き込んだ光を揃え、HUD の読みやすさを保つ。実画面の比較は同 §6。

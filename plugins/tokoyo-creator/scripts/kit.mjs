@@ -39208,7 +39208,7 @@ function ktx2Bytes(bytes) {
   }
   return texels * layers * faces;
 }
-async function glbBytes(bytes) {
+async function glbBytes(bytes, fallback) {
   const document2 = await (await gltfIO()).readBinary(bytes);
   const root = document2.getRoot();
   let total = 0;
@@ -39216,7 +39216,13 @@ async function glbBytes(bytes) {
     const image = texture.getImage();
     if (!image)
       continue;
-    total += texture.getMimeType() === "image/ktx2" ? ktx2Bytes(image) : ImageUtils.getVRAMByteLength(image, texture.getMimeType()) ?? image.byteLength;
+    if (texture.getMimeType() === "image/ktx2") {
+      const size = ktx2Bytes(image);
+      total += size;
+      fallback(size * 3);
+    } else {
+      total += ImageUtils.getVRAMByteLength(image, texture.getMimeType()) ?? image.byteLength;
+    }
   }
   for (const accessor of root.listAccessors()) {
     total += accessor.getArray()?.byteLength ?? 0;
@@ -39229,7 +39235,7 @@ async function audioBytes(bytes, mimeType) {
     throw new Error("the duration could not be read");
   return format.duration * AUDIO_SAMPLE_RATE * (format.numberOfChannels ?? 2) * FLOAT32_BYTES;
 }
-async function fileBytes(file2) {
+async function fileBytes(file2, fallback) {
   const extension = extensionOf2(file2.path);
   const imageMime = IMAGE_MIMES[extension];
   if (imageMime) {
@@ -39238,10 +39244,13 @@ async function fileBytes(file2) {
       throw new Error(`the ${extension} header could not be read`);
     return vram;
   }
-  if (extension === "ktx2")
-    return ktx2Bytes(file2.bytes);
+  if (extension === "ktx2") {
+    const size = ktx2Bytes(file2.bytes);
+    fallback(size * 3);
+    return size;
+  }
   if (extension === "glb")
-    return glbBytes(file2.bytes);
+    return glbBytes(file2.bytes, fallback);
   const audioMime = AUDIO_MIMES[extension];
   if (audioMime)
     return audioBytes(file2.bytes, audioMime);
@@ -39253,9 +39262,15 @@ async function estimateMemory(manifest, files) {
   const findings = [];
   const sum = async (group) => {
     let total = 0;
+    let fallback = 0;
     for (const file2 of group) {
       try {
-        total += await fileBytes(file2);
+        let extra = 0;
+        const size = await fileBytes(file2, (bytes) => {
+          extra += bytes;
+        });
+        total += size;
+        fallback += size + extra;
       } catch (cause) {
         findings.push({
           code: "MEMORY_ESTIMATE_FAILED",
@@ -39264,15 +39279,20 @@ async function estimateMemory(manifest, files) {
           path: file2.path
         });
         total += file2.size;
+        fallback += file2.size;
       }
     }
-    return total;
+    return { size: total, fallback };
   };
   const { plan } = planBundles(manifest, files);
-  const initial = await sum(plan.initial.files);
+  const initialSize = await sum(plan.initial.files);
+  const initial = initialSize.size;
   const bundles = {};
+  const fallbackBundles = {};
   for (const [name, bundle] of Object.entries(plan.bundles)) {
-    bundles[name] = await sum(bundle.files);
+    const size = await sum(bundle.files);
+    bundles[name] = size.size;
+    fallbackBundles[name] = size.fallback;
   }
   const groups = {};
   const singles = [];
@@ -39284,7 +39304,17 @@ async function estimateMemory(manifest, files) {
       groups[group] = (groups[group] ?? 0) + size;
   }
   const peak = initial + Math.max(0, ...singles, ...Object.values(groups));
-  const advice = "Prefer KTX2 textures (8 bpp instead of 32), shrink textures, group the bundles that are held together " + "and unload the ones not in use. To also run on 2-3 GB phones, keep it under 256 MiB";
+  const fallbackGroups = {};
+  const fallbackSingles = [];
+  for (const [name, size] of Object.entries(fallbackBundles)) {
+    const group = manifest.bundles[name]?.group;
+    if (group === undefined)
+      fallbackSingles.push(size);
+    else
+      fallbackGroups[group] = (fallbackGroups[group] ?? 0) + size;
+  }
+  const fallbackPeak = initialSize.fallback + Math.max(0, ...fallbackSingles, ...Object.values(fallbackGroups));
+  const advice = "Prefer KTX2 textures (8 bpp instead of 32), shrink textures, group the bundles that are held together " + "and unload the ones not in use. For 2-3 GB phones, 256 MiB is an asset guideline, not an OS memory guarantee. " + "Include retained chunks, transition overlap, decode/upload buffers, generated meshes and render targets separately.";
   if (peak > ARTIFACT_MEMORY_STRONG_WARN_BYTES) {
     findings.push({
       code: "MEMORY_ESTIMATE_VERY_LARGE",
@@ -39298,7 +39328,28 @@ async function estimateMemory(manifest, files) {
       message: `the decoded size of the start-up files plus the largest set of bundles held together is about ${mib(peak)}, ` + `over the ${mib(ARTIFACT_MEMORY_WARN_BYTES)} guideline; phones may close the page. ${advice}`
     });
   }
-  return { estimate: { initial, bundles, groups, peak }, findings };
+  if (fallbackPeak > peak && fallbackPeak > ARTIFACT_MEMORY_WARN_BYTES && peak <= ARTIFACT_MEMORY_WARN_BYTES) {
+    findings.push({
+      code: fallbackPeak > ARTIFACT_MEMORY_STRONG_WARN_BYTES ? "MEMORY_ESTIMATE_VERY_LARGE" : "MEMORY_ESTIMATE_LARGE",
+      severity: "warning",
+      message: `RGBA fallback for Basis textures raises the declared asset peak to about ${mib(fallbackPeak)}. ${advice}`
+    });
+  }
+  return {
+    estimate: {
+      initial,
+      bundles,
+      groups,
+      peak,
+      rgbaFallback: {
+        initial: initialSize.fallback,
+        bundles: fallbackBundles,
+        groups: fallbackGroups,
+        peak: fallbackPeak
+      }
+    },
+    findings
+  };
 }
 // frontend/packages/app-validator/src/validate.ts
 async function validateArchive(archive, options = {}, ledger = []) {
@@ -40423,7 +40474,7 @@ function agentsMd(kitRoot) {
   return [
     "# TOKOYO.games のゲーム制作（Creator Kit）",
     "",
-    "このディレクトリは、**TOKOYO.games（AI でミニゲームを作って遊ぶ SNS）で遊べるゲームを 1 本作り、Platform に送る**ための作業場所です。",
+    "このディレクトリは、**TOKOYO.games（AI でゲームを作って遊ぶ SNS）で遊べるゲームを 1 本作り、Platform に送る**ための作業場所です。",
     "ここでの仕事はゲームを作ることだけです。",
     "",
     "## 目的と範囲",
