@@ -23740,7 +23740,8 @@ var CAPABILITIES = [
   "device.microphone",
   "device.motion",
   "device.pointerLock",
-  "share.capture"
+  "share.capture",
+  "commerce.purchase"
 ];
 var capabilitySchema = exports_external.enum(CAPABILITIES);
 var ORIENTATIONS = ["portrait", "landscape", "any"];
@@ -24053,6 +24054,48 @@ var bundledPathSchema = artifactPathSchema.refine((path) => {
 var bundleRefsSchema = exports_external.strictObject({
   refs: exports_external.record(bundledPathSchema, exports_external.uuid())
 });
+// frontend/packages/app-protocol/src/commerce.ts
+var coins = exports_external.string().regex(/^[0-9]{1,14}(\.[0-9]{1,6})?$/);
+var commercePurchasePayloadSchema = exports_external.strictObject({
+  productId: exports_external.uuid(),
+  requestKey: exports_external.uuid()
+});
+var commerceReceiptSchema = exports_external.strictObject({
+  receipt_id: exports_external.uuid(),
+  request_key: exports_external.uuid(),
+  product_id: exports_external.uuid(),
+  coins,
+  granted_at: exports_external.iso.datetime({ offset: true })
+});
+var commerceQuoteSchema = exports_external.strictObject({
+  quote_id: exports_external.uuid(),
+  product_id: exports_external.uuid(),
+  product_name: exports_external.string().min(1).max(200),
+  creator_name: exports_external.string().min(1).max(200),
+  coins,
+  balance: coins,
+  earned_coins: coins,
+  expires_at: exports_external.iso.datetime({ offset: true })
+});
+var commercePurchaseResultSchema = exports_external.discriminatedUnion("status", [
+  exports_external.strictObject({ status: exports_external.literal("cancelled") }),
+  exports_external.strictObject({ status: exports_external.literal("purchased"), receipt: commerceReceiptSchema })
+]);
+var commerceProductListOptionsSchema = exports_external.strictObject({
+  cursor: exports_external.uuid().nullable().optional(),
+  limit: exports_external.number().int().min(1).max(50).optional()
+});
+var commerceProductSchema = exports_external.strictObject({
+  product_id: exports_external.uuid(),
+  product_name: exports_external.string().min(1).max(200),
+  creator_name: exports_external.string().min(1).max(200),
+  kind: exports_external.enum(["durable", "consumable"]),
+  coins
+});
+var commerceProductPageSchema = exports_external.strictObject({
+  items: exports_external.array(commerceProductSchema).max(50),
+  nextCursor: exports_external.uuid().nullable()
+});
 // frontend/packages/app-protocol/src/errors.ts
 var ERROR_CODES = [
   "UNAUTHORIZED",
@@ -24265,6 +24308,7 @@ var OP_NAMES = [
   "ui.openInvite",
   "ui.openShare",
   "ui.openCredits",
+  "commerce.requestPurchase",
   "device.start",
   "device.stop"
 ];
@@ -24281,6 +24325,7 @@ var OP_PAYLOAD_SCHEMAS = {
   "ui.openInvite": openInviteDocumentPayloadSchema.optional(),
   "ui.openShare": openSharePayloadSchema.optional(),
   "ui.openCredits": exports_external.undefined(),
+  "commerce.requestPurchase": commercePurchasePayloadSchema,
   "device.start": deviceStartPayloadSchema,
   "device.stop": deviceStopPayloadSchema
 };
