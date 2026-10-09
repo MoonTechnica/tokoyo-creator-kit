@@ -24192,6 +24192,10 @@ var artifactMessageSchema = exports_external.strictObject({
   files: exports_external.array(artifactFileSchema),
   bundles: exports_external.record(bundleNameSchema, bundleSummarySchema).default({})
 });
+var bootMessageSchema = exports_external.strictObject({
+  type: exports_external.literal("boot"),
+  ok: exports_external.boolean()
+});
 var bundleRequestMessageSchema = exports_external.strictObject({
   type: exports_external.literal("bundle_request"),
   name: bundleNameSchema
