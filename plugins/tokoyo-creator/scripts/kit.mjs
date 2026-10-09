@@ -23875,6 +23875,7 @@ var deviceManifestSchema = exports_external.strictObject({
 var manifestSchema = exports_external.strictObject({
   manifestVersion: exports_external.literal(MANIFEST_VERSION).default(MANIFEST_VERSION),
   kind: exports_external.string().min(1).max(64),
+  contentRating: exports_external.union([exports_external.literal("all"), exports_external.literal(13), exports_external.literal(16), exports_external.literal(18)]).optional(),
   runtimeVersion: exports_external.int().min(1),
   sdkVersion: exports_external.literal(SDK_VERSION),
   entrypoint: artifactPathSchema,
@@ -24107,6 +24108,10 @@ var ERROR_CODES = [
   "SCHEMA_UPGRADE_REQUIRED",
   "REVISION_CONFLICT",
   "INVALID_ACTION",
+  "CONTENT_REJECTED",
+  "CONTENT_REVIEW_REQUIRED",
+  "CONTENT_AGE_RESTRICTED",
+  "CONTENT_CHECK_FAILED",
   "RATE_LIMITED",
   "QUOTA_EXCEEDED",
   "SPACE_UNAVAILABLE",
