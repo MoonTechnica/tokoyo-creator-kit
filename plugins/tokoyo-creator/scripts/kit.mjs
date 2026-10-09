@@ -24101,6 +24101,7 @@ var commerceProductPageSchema = exports_external.strictObject({
 var ERROR_CODES = [
   "UNAUTHORIZED",
   "FORBIDDEN",
+  "SAFETY_ONBOARDING_REQUIRED",
   "SESSION_EXPIRED",
   "VERSION_DISABLED",
   "RUNTIME_UNSUPPORTED",
